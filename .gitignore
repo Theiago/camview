@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+recordings/
+roi.json
+yolo11n.pt
+*.avi
+*.mp4
+venv/
+*.jpg
+*.png
+test_*.py

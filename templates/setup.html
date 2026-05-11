@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configurar área monitorada</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; color: #eee; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 14px; }
+    h1 { font-size: 1.2rem; }
+    p.hint { font-size: 0.85rem; color: #aaa; text-align: center; }
+    #canvas-wrap { position: relative; display: inline-block; cursor: crosshair; }
+    #canvas-wrap img { display: block; max-width: min(900px, 100vw - 40px); border-radius: 6px; }
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .actions { display: flex; gap: 12px; }
+    button {
+      padding: 10px 24px; border: none; border-radius: 6px;
+      font-size: 0.9rem; cursor: pointer; font-weight: bold;
+    }
+    #btn-save { background: #22c55e; color: #000; }
+    #btn-save:disabled { background: #444; color: #888; cursor: default; }
+    #btn-clear { background: #ef4444; color: #fff; }
+    #btn-reload { background: #3b82f6; color: #fff; }
+    #msg { font-size: 0.85rem; min-height: 1.2em; }
+    #coords { font-size: 0.8rem; color: #aaa; font-family: monospace; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>Configurar área monitorada</h1>
+  <p class="hint">Clique e arraste sobre a imagem para definir a região. Depois clique em Salvar.</p>
+
+  <div id="canvas-wrap">
+    <img id="snap" src="/snapshot?t=0" alt="Snapshot">
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <p id="coords">Nenhuma área selecionada</p>
+
+  <div class="actions">
+    <button id="btn-save" disabled>Salvar área</button>
+    <button id="btn-clear">Remover ROI</button>
+    <button id="btn-reload">Atualizar foto</button>
+  </div>
+
+  <p id="msg"></p>
+
+  <script>
+    const snap = document.getElementById('snap');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    const coordsEl = document.getElementById('coords');
+    const saveBtn = document.getElementById('btn-save');
+    const msg = document.getElementById('msg');
+
+    let start = null, current = null, drawing = false;
+    let roi = null;
+
+    function syncCanvas() {
+      canvas.width = snap.offsetWidth;
+      canvas.height = snap.offsetHeight;
+    }
+
+    function scaleToNatural(rx, ry, rw, rh) {
+      const sx = snap.naturalWidth / snap.offsetWidth;
+      const sy = snap.naturalHeight / snap.offsetHeight;
+      return { x: Math.round(rx * sx), y: Math.round(ry * sy), w: Math.round(rw * sx), h: Math.round(rh * sy) };
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!start || !current) return;
+      const x = Math.min(start.x, current.x);
+      const y = Math.min(start.y, current.y);
+      const w = Math.abs(current.x - start.x);
+      const h = Math.abs(current.y - start.y);
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = 'rgba(34,197,94,0.1)';
+      ctx.fillRect(x, y, w, h);
+
+      const n = scaleToNatural(x, y, w, h);
+      coordsEl.textContent = `x=${n.x}  y=${n.y}  w=${n.w}  h=${n.h}  (pixels da imagem original)`;
+      roi = n;
+      saveBtn.disabled = (w < 5 || h < 5);
+    }
+
+    function pos(e) {
+      const r = canvas.getBoundingClientRect();
+      const src = e.touches ? e.touches[0] : e;
+      return { x: src.clientX - r.left, y: src.clientY - r.top };
+    }
+
+    canvas.addEventListener('mousedown', e => { drawing = true; start = pos(e); current = pos(e); draw(); });
+    canvas.addEventListener('mousemove', e => { if (!drawing) return; current = pos(e); draw(); });
+    canvas.addEventListener('mouseup', () => { drawing = false; });
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; start = pos(e); current = pos(e); draw(); });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); if (!drawing) return; current = pos(e); draw(); });
+    canvas.addEventListener('touchend', () => { drawing = false; });
+
+    snap.addEventListener('load', () => { syncCanvas(); draw(); });
+    window.addEventListener('resize', () => { syncCanvas(); draw(); });
+
+    saveBtn.addEventListener('click', async () => {
+      if (!roi) return;
+      msg.textContent = 'Salvando...';
+      const r = await fetch('/save-roi', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(roi) });
+      const d = await r.json();
+      if (d.ok) {
+        msg.textContent = 'ROI salva! Redirecionando...';
+        setTimeout(() => location.href = '/', 1200);
+      } else {
+        msg.textContent = 'Erro ao salvar.';
+      }
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', async () => {
+      await fetch('/clear-roi', { method: 'POST' });
+      roi = null; start = null; current = null;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      coordsEl.textContent = 'ROI removida — monitorando frame inteiro';
+      saveBtn.disabled = true;
+      msg.textContent = '';
+    });
+
+    document.getElementById('btn-reload').addEventListener('click', () => {
+      snap.src = '/snapshot?t=' + Date.now();
+      msg.textContent = '';
+    });
+  </script>
+</body>
+</html>

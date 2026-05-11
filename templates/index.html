@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitor Portão</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; color: #eee; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; gap: 12px; }
+    h1 { font-size: 1.3rem; letter-spacing: 1px; }
+    #camera-container { position: relative; width: 100%; max-width: 900px; }
+    #stream { width: 100%; border-radius: 8px; display: block; }
+    #badge {
+      position: absolute; top: 12px; right: 12px;
+      padding: 6px 14px; border-radius: 20px;
+      font-weight: bold; font-size: 0.85rem;
+      transition: background 0.3s;
+    }
+    #badge.ok       { background: #22c55e; color: #000; }
+    #badge.alert    { background: #ef4444; color: #fff; animation: pulse 0.8s infinite alternate; }
+    #badge.loiter   { background: #f97316; color: #fff; animation: pulse 0.4s infinite alternate; }
+    @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
+    #controls { display: flex; align-items: center; gap: 10px; }
+    #btn-mute {
+      background: #333; border: 1px solid #555; color: #eee;
+      padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.85rem;
+    }
+    #btn-mute.muted { background: #7f1d1d; border-color: #ef4444; }
+    #footer { font-size: 0.75rem; color: #666; }
+    #sound-banner {
+      background: #1e3a5f; border: 1px solid #3b82f6; border-radius: 8px;
+      padding: 10px 20px; font-size: 0.85rem; cursor: pointer;
+      text-align: center; width: 100%; max-width: 900px;
+    }
+    #sound-banner.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Monitor Portão</h1>
+  <div id="camera-container">
+    <img id="stream" src="/stream" alt="Stream câmera">
+    <span id="badge" class="ok">SEM MOVIMENTO</span>
+  </div>
+
+  <div id="controls">
+    <button id="btn-mute">🔔 Som ativo</button>
+  </div>
+
+  <div id="sound-banner">🔊 Clique aqui para ativar o som de alerta</div>
+
+  <p id="footer">Atualizando status a cada 2s &nbsp;|&nbsp; <a href="/recordings" style="color:#3b82f6">Gravações</a></p>
+
+  <script>
+    const badge   = document.getElementById('badge');
+    const btnMute = document.getElementById('btn-mute');
+    const banner  = document.getElementById('sound-banner');
+
+    let muted        = false;
+    let wasMotion    = false;
+    let wasLoitering = false;
+    let audioCtx     = null;
+    let pendingBeep  = false;
+
+    function activateAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      banner.classList.add('hidden');
+      if (pendingBeep) { pendingBeep = false; beep(); }
+    }
+
+    function playTone(freq, offsets, duration) {
+      if (muted || !audioCtx) return;
+      offsets.forEach(offset => {
+        const osc  = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.6, audioCtx.currentTime + offset);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + offset + duration);
+        osc.start(audioCtx.currentTime + offset);
+        osc.stop(audioCtx.currentTime  + offset + duration);
+      });
+    }
+
+    function beep() {
+      if (muted) return;
+      if (!audioCtx) { pendingBeep = true; return; }
+      playTone(880, [0, 0.25], 0.18);           // dois bipes curtos — movimento
+    }
+
+    function beepLoiter() {
+      if (muted || !audioCtx) return;
+      playTone(520, [0, 0.4, 0.8], 0.35);       // três bipes graves — permanência
+    }
+
+    banner.addEventListener('click', activateAudio);
+
+    btnMute.addEventListener('click', () => {
+      activateAudio();
+      muted = !muted;
+      btnMute.textContent = muted ? '🔕 Som mudo' : '🔔 Som ativo';
+      btnMute.classList.toggle('muted', muted);
+    });
+
+    function updateStatus() {
+      fetch('/status')
+        .then(r => r.json())
+        .then(d => {
+          if (d.loitering) {
+            badge.textContent = '🚨 PERMANÊNCIA NO PORTÃO';
+            badge.className = 'loiter';
+            if (!wasLoitering) beepLoiter();
+            wasLoitering = true;
+            wasMotion = true;
+          } else if (d.motion) {
+            badge.textContent = '⚠ MOVIMENTO DETECTADO';
+            badge.className = 'alert';
+            if (!wasMotion) beep();
+            wasMotion = true;
+            wasLoitering = false;
+          } else {
+            badge.textContent = 'SEM MOVIMENTO';
+            badge.className = 'ok';
+            wasMotion = false;
+            wasLoitering = false;
+          }
+        })
+        .catch(() => {});
+    }
+
+    setInterval(updateStatus, 2000);
+    updateStatus();
+  </script>
+</body>
+</html>
