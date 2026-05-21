@@ -3,31 +3,45 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Configurar área monitorada</title>
+  <title>Configurar áreas</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #111; color: #eee; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 14px; }
     h1 { font-size: 1.2rem; }
+    .tabs { display: flex; gap: 8px; }
+    .tab {
+      padding: 8px 20px; border-radius: 6px; cursor: pointer;
+      font-size: 0.9rem; font-weight: bold; border: 2px solid transparent;
+    }
+    .tab.motion  { background: #14532d; color: #4ade80; border-color: #22c55e; }
+    .tab.loiter  { background: #172554; color: #93c5fd; border-color: #3b82f6; }
+    .tab.gate    { background: #3b2a1a; color: #fbbf24; border-color: #f59e0b; }
+    .tab.active  { filter: brightness(1.4); }
+    .tab:not(.active) { opacity: 0.5; }
     p.hint { font-size: 0.85rem; color: #aaa; text-align: center; }
     #canvas-wrap { position: relative; display: inline-block; cursor: crosshair; }
     #canvas-wrap img { display: block; max-width: min(900px, 100vw - 40px); border-radius: 6px; }
     #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-    .actions { display: flex; gap: 12px; }
-    button {
-      padding: 10px 24px; border: none; border-radius: 6px;
-      font-size: 0.9rem; cursor: pointer; font-weight: bold;
-    }
-    #btn-save { background: #22c55e; color: #000; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    button { padding: 10px 24px; border: none; border-radius: 6px; font-size: 0.9rem; cursor: pointer; font-weight: bold; }
+    #btn-save         { background: #22c55e; color: #000; }
     #btn-save:disabled { background: #444; color: #888; cursor: default; }
-    #btn-clear { background: #ef4444; color: #fff; }
-    #btn-reload { background: #3b82f6; color: #fff; }
-    #msg { font-size: 0.85rem; min-height: 1.2em; }
+    #btn-clear        { background: #ef4444; color: #fff; }
+    #btn-reload       { background: #555; color: #fff; }
+    #msg    { font-size: 0.85rem; min-height: 1.2em; }
     #coords { font-size: 0.8rem; color: #aaa; font-family: monospace; min-height: 1.2em; }
   </style>
 </head>
 <body>
-  <h1>Configurar área monitorada</h1>
-  <p class="hint">Clique e arraste sobre a imagem para definir a região. Depois clique em Salvar.</p>
+  <h1>Configurar áreas</h1>
+
+  <div class="tabs">
+    <div class="tab motion active" id="tab-motion" onclick="switchTab('motion')">Área de movimento</div>
+    <div class="tab loiter"        id="tab-loiter" onclick="switchTab('loiter')">Área de permanência</div>
+    <div class="tab gate"          id="tab-gate"   onclick="switchTab('gate')">Portão</div>
+  </div>
+
+  <p class="hint" id="hint">Clique e arraste para definir a área de movimento (verde). Depois clique em Salvar.</p>
 
   <div id="canvas-wrap">
     <img id="snap" src="/snapshot?t=0" alt="Snapshot">
@@ -38,51 +52,103 @@
 
   <div class="actions">
     <button id="btn-save" disabled>Salvar área</button>
-    <button id="btn-clear">Remover ROI</button>
+    <button id="btn-ref-open"   style="display:none;background:#f59e0b;color:#000">📷 Ref: aberto</button>
+    <button id="btn-ref-closed" style="display:none;background:#92400e;color:#fef3c7">📷 Ref: fechado</button>
+    <button id="btn-clear">Remover área</button>
     <button id="btn-reload">Atualizar foto</button>
   </div>
 
   <p id="msg"></p>
 
   <script>
-    const snap = document.getElementById('snap');
-    const canvas = document.getElementById('overlay');
-    const ctx = canvas.getContext('2d');
+    const snap     = document.getElementById('snap');
+    const canvas   = document.getElementById('overlay');
+    const ctx      = canvas.getContext('2d');
     const coordsEl = document.getElementById('coords');
-    const saveBtn = document.getElementById('btn-save');
-    const msg = document.getElementById('msg');
+    const saveBtn      = document.getElementById('btn-save');
+    const refOpenBtn   = document.getElementById('btn-ref-open');
+    const refClosedBtn = document.getElementById('btn-ref-closed');
+    const msgEl        = document.getElementById('msg');
+    const hintEl   = document.getElementById('hint');
 
+    let activeTab = 'motion';
     let start = null, current = null, drawing = false;
-    let roi = null;
+    let rois = { motion: null, loiter: null, gate: null };
+
+    const COLORS = {
+      motion: { stroke: '#22c55e', fill: 'rgba(34,197,94,0.1)' },
+      loiter: { stroke: '#3b82f6', fill: 'rgba(59,130,246,0.1)' },
+      gate:   { stroke: '#f59e0b', fill: 'rgba(245,158,11,0.1)' },
+    };
+
+    const HINTS = {
+      motion: 'Clique e arraste para definir a área de movimento (verde). Depois clique em Salvar.',
+      loiter: 'Clique e arraste para definir a área de permanência (azul) — menor, dentro da área de movimento.',
+      gate:   'Clique e arraste sobre a porta de aço e salve a área. Depois use os botões de referência para registrar os dois estados — em qualquer ordem.',
+    };
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.getElementById('tab-motion').classList.toggle('active', tab === 'motion');
+      document.getElementById('tab-loiter').classList.toggle('active', tab === 'loiter');
+      document.getElementById('tab-gate').classList.toggle('active', tab === 'gate');
+      hintEl.textContent = HINTS[tab];
+      refOpenBtn.style.display   = tab === 'gate' ? '' : 'none';
+      refClosedBtn.style.display = tab === 'gate' ? '' : 'none';
+      start = null; current = null;
+      msgEl.textContent = '';
+      saveBtn.disabled = true;
+      coordsEl.textContent = 'Nenhuma área selecionada';
+      redraw();
+    }
 
     function syncCanvas() {
-      canvas.width = snap.offsetWidth;
+      canvas.width  = snap.offsetWidth;
       canvas.height = snap.offsetHeight;
+      redraw();
     }
 
     function scaleToNatural(rx, ry, rw, rh) {
-      const sx = snap.naturalWidth / snap.offsetWidth;
+      const sx = snap.naturalWidth  / snap.offsetWidth;
       const sy = snap.naturalHeight / snap.offsetHeight;
-      return { x: Math.round(rx * sx), y: Math.round(ry * sy), w: Math.round(rw * sx), h: Math.round(rh * sy) };
+      return { x: Math.round(rx*sx), y: Math.round(ry*sy), w: Math.round(rw*sx), h: Math.round(rh*sy) };
     }
 
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!start || !current) return;
-      const x = Math.min(start.x, current.x);
-      const y = Math.min(start.y, current.y);
-      const w = Math.abs(current.x - start.x);
-      const h = Math.abs(current.y - start.y);
-      ctx.strokeStyle = '#22c55e';
+    function scaleToDisplay(roi) {
+      const sx = snap.offsetWidth  / snap.naturalWidth;
+      const sy = snap.offsetHeight / snap.naturalHeight;
+      return { x: roi.x*sx, y: roi.y*sy, w: roi.w*sx, h: roi.h*sy };
+    }
+
+    function drawRect(x, y, w, h, color) {
+      ctx.strokeStyle = color.stroke;
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = 'rgba(34,197,94,0.1)';
+      ctx.fillStyle = color.fill;
       ctx.fillRect(x, y, w, h);
+    }
 
-      const n = scaleToNatural(x, y, w, h);
-      coordsEl.textContent = `x=${n.x}  y=${n.y}  w=${n.w}  h=${n.h}  (pixels da imagem original)`;
-      roi = n;
-      saveBtn.disabled = (w < 5 || h < 5);
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // desenha ROIs salvas (não ativas)
+      for (const [tab, roi] of Object.entries(rois)) {
+        if (roi && tab !== activeTab) {
+          const d = scaleToDisplay(roi);
+          drawRect(d.x, d.y, d.w, d.h, COLORS[tab]);
+        }
+      }
+      // desenha seleção atual
+      if (start && current) {
+        const x = Math.min(start.x, current.x);
+        const y = Math.min(start.y, current.y);
+        const w = Math.abs(current.x - start.x);
+        const h = Math.abs(current.y - start.y);
+        drawRect(x, y, w, h, COLORS[activeTab]);
+        const n = scaleToNatural(x, y, w, h);
+        coordsEl.textContent = `x=${n.x}  y=${n.y}  w=${n.w}  h=${n.h}`;
+        rois[activeTab] = n;
+        saveBtn.disabled = (w < 5 || h < 5);
+      }
     }
 
     function pos(e) {
@@ -91,41 +157,57 @@
       return { x: src.clientX - r.left, y: src.clientY - r.top };
     }
 
-    canvas.addEventListener('mousedown', e => { drawing = true; start = pos(e); current = pos(e); draw(); });
-    canvas.addEventListener('mousemove', e => { if (!drawing) return; current = pos(e); draw(); });
-    canvas.addEventListener('mouseup', () => { drawing = false; });
-    canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; start = pos(e); current = pos(e); draw(); });
-    canvas.addEventListener('touchmove', e => { e.preventDefault(); if (!drawing) return; current = pos(e); draw(); });
-    canvas.addEventListener('touchend', () => { drawing = false; });
+    canvas.addEventListener('mousedown',  e => { drawing = true; start = pos(e); current = pos(e); redraw(); });
+    canvas.addEventListener('mousemove',  e => { if (!drawing) return; current = pos(e); redraw(); });
+    canvas.addEventListener('mouseup',    () => { drawing = false; });
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; start = pos(e); current = pos(e); redraw(); });
+    canvas.addEventListener('touchmove',  e => { e.preventDefault(); if (!drawing) return; current = pos(e); redraw(); });
+    canvas.addEventListener('touchend',   () => { drawing = false; });
 
-    snap.addEventListener('load', () => { syncCanvas(); draw(); });
-    window.addEventListener('resize', () => { syncCanvas(); draw(); });
+    snap.addEventListener('load',    () => { syncCanvas(); });
+    window.addEventListener('resize', () => { syncCanvas(); });
+
+    const SAVE_URL  = { motion: '/save-roi',  loiter: '/save-loiter-roi',  gate: '/save-gate-roi' };
+    const CLEAR_URL = { motion: '/clear-roi', loiter: '/clear-loiter-roi', gate: '/clear-gate-roi' };
 
     saveBtn.addEventListener('click', async () => {
+      const roi = rois[activeTab];
       if (!roi) return;
-      msg.textContent = 'Salvando...';
-      const r = await fetch('/save-roi', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(roi) });
+      msgEl.textContent = 'Salvando...';
+      const r = await fetch(SAVE_URL[activeTab], {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(roi)
+      });
       const d = await r.json();
       if (d.ok) {
-        msg.textContent = 'ROI salva! Redirecionando...';
-        setTimeout(() => location.href = '/', 1200);
+        msgEl.textContent = activeTab === 'gate'
+          ? 'Área salva! Agora registre os dois estados com os botões de referência.'
+          : 'Área salva!';
+        if (activeTab === 'motion') setTimeout(() => location.href = '/', 1200);
       } else {
-        msg.textContent = 'Erro ao salvar.';
+        msgEl.textContent = 'Erro ao salvar.';
       }
     });
 
+    async function saveRef(url, label) {
+      msgEl.textContent = 'Salvando...';
+      const d = await fetch(url, { method: 'POST' }).then(r => r.json());
+      msgEl.textContent = d.ok ? `Referência "${label}" salva!` : `Erro: ${d.error}`;
+    }
+    refOpenBtn.addEventListener('click',   () => saveRef('/save-gate-ref-open', 'aberto'));
+    refClosedBtn.addEventListener('click', () => saveRef('/save-gate-ref',      'fechado'));
+
     document.getElementById('btn-clear').addEventListener('click', async () => {
-      await fetch('/clear-roi', { method: 'POST' });
-      roi = null; start = null; current = null;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      coordsEl.textContent = 'ROI removida — monitorando frame inteiro';
+      await fetch(CLEAR_URL[activeTab], { method: 'POST' });
+      rois[activeTab] = null; start = null; current = null;
       saveBtn.disabled = true;
-      msg.textContent = '';
+      coordsEl.textContent = 'Área removida';
+      msgEl.textContent = '';
+      redraw();
     });
 
     document.getElementById('btn-reload').addEventListener('click', () => {
       snap.src = '/snapshot?t=' + Date.now();
-      msg.textContent = '';
+      msgEl.textContent = '';
     });
   </script>
 </body>

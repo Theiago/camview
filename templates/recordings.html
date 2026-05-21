@@ -12,9 +12,15 @@
     .empty { color: #666; font-size: 0.9rem; }
     .list { display: flex; flex-direction: column; gap: 16px; max-width: 900px; }
     .card { background: #1a1a1a; border-radius: 8px; overflow: hidden; }
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid #2a2a2a; gap: 10px;
+    }
+    .dt-date { font-size: 1rem; font-weight: bold; color: #eee; }
+    .dt-time { font-size: 1.1rem; font-weight: bold; color: #facc15; letter-spacing: 1px; }
     video { width: 100%; display: block; max-height: 400px; background: #000; }
-    .info { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 10px; }
-    .name { font-size: 0.85rem; color: #aaa; font-family: monospace; flex: 1; word-break: break-all; }
+    .info { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; gap: 10px; }
+    .name { font-size: 0.75rem; color: #555; font-family: monospace; flex: 1; word-break: break-all; }
     .size { font-size: 0.8rem; color: #666; white-space: nowrap; }
     .btn-del {
       background: #7f1d1d; border: none; color: #fca5a5;
@@ -32,13 +38,22 @@
   <div class="list">
     {% for f in files %}
     <div class="card" id="card-{{ loop.index }}">
+      <div class="card-header">
+        <div>
+          <span class="dt-date">{{ f.date }}</span>
+          &nbsp;
+          <span class="dt-time">{{ f.time }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="size">{{ (f.size / 1024 / 1024) | round(1) }} MB</span>
+          <button class="btn-del" onclick="del('{{ f.name }}', 'card-{{ loop.index }}')">Apagar</button>
+        </div>
+      </div>
       <video controls preload="metadata">
         <source src="/recordings/{{ f.name }}" type="video/mp4">
       </video>
       <div class="info">
         <span class="name">{{ f.name }}</span>
-        <span class="size">{{ (f.size / 1024 / 1024) | round(1) }} MB</span>
-        <button class="btn-del" onclick="del('{{ f.name }}', 'card-{{ loop.index }}')">Apagar</button>
       </div>
     </div>
     {% endfor %}

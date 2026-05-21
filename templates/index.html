@@ -20,12 +20,21 @@
     #badge.alert    { background: #ef4444; color: #fff; animation: pulse 0.8s infinite alternate; }
     #badge.loiter   { background: #f97316; color: #fff; animation: pulse 0.4s infinite alternate; }
     @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
+    #gate-badge {
+      position: absolute; bottom: 12px; left: 12px;
+      padding: 4px 10px; border-radius: 14px;
+      font-weight: bold; font-size: 0.78rem; display: none;
+    }
+    #gate-badge.open   { display: block; background: #ef4444; color: #fff; }
+    #gate-badge.closed { display: block; background: #374151; color: #9ca3af; }
     #controls { display: flex; align-items: center; gap: 10px; }
-    #btn-mute {
+    #btn-mute, #btn-roi, #btn-loiter-alerts {
       background: #333; border: 1px solid #555; color: #eee;
       padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.85rem;
     }
-    #btn-mute.muted { background: #7f1d1d; border-color: #ef4444; }
+    #btn-mute.muted          { background: #7f1d1d; border-color: #ef4444; }
+    #btn-roi.hidden          { background: #78350f; border-color: #f59e0b; }
+    #btn-loiter-alerts.muted { background: #7f1d1d; border-color: #ef4444; }
     #footer { font-size: 0.75rem; color: #666; }
     #sound-banner {
       background: #1e3a5f; border: 1px solid #3b82f6; border-radius: 8px;
@@ -40,10 +49,13 @@
   <div id="camera-container">
     <img id="stream" src="/stream" alt="Stream câmera">
     <span id="badge" class="ok">SEM MOVIMENTO</span>
+    <span id="gate-badge"></span>
   </div>
 
   <div id="controls">
     <button id="btn-mute">🔔 Som ativo</button>
+    <button id="btn-roi">⬜ Áreas visíveis</button>
+    <button id="btn-loiter-alerts">🔔 Alertas permanência</button>
   </div>
 
   <div id="sound-banner">🔊 Clique aqui para ativar o som de alerta</div>
@@ -51,9 +63,12 @@
   <p id="footer">Atualizando status a cada 2s &nbsp;|&nbsp; <a href="/recordings" style="color:#3b82f6">Gravações</a></p>
 
   <script>
-    const badge   = document.getElementById('badge');
-    const btnMute = document.getElementById('btn-mute');
-    const banner  = document.getElementById('sound-banner');
+    const badge      = document.getElementById('badge');
+    const gateBadge  = document.getElementById('gate-badge');
+    const btnMute         = document.getElementById('btn-mute');
+    const btnRoi          = document.getElementById('btn-roi');
+    const btnLoiterAlerts = document.getElementById('btn-loiter-alerts');
+    const banner     = document.getElementById('sound-banner');
 
     let muted        = false;
     let wasMotion    = false;
@@ -126,9 +141,33 @@
             wasMotion = false;
             wasLoitering = false;
           }
+          if (d.gate_configured) {
+            gateBadge.textContent = d.gate_open ? '🔓 PORTÃO ABERTO' : '🔒 Portão fechado';
+            gateBadge.className = d.gate_open ? 'open' : 'closed';
+          }
+          btnLoiterAlerts.textContent = d.loiter_alerts ? '🔔 Alertas permanência' : '🔕 Alertas silenciados';
+          btnLoiterAlerts.classList.toggle('muted', !d.loiter_alerts);
         })
         .catch(() => {});
     }
+
+    btnRoi.addEventListener('click', () => {
+      fetch('/toggle-roi', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          btnRoi.textContent = d.show_roi ? '⬜ Áreas visíveis' : '🔲 Áreas ocultas';
+          btnRoi.classList.toggle('hidden', !d.show_roi);
+        });
+    });
+
+    btnLoiterAlerts.addEventListener('click', () => {
+      fetch('/toggle-loiter-alerts', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          btnLoiterAlerts.textContent = d.loiter_alerts ? '🔔 Alertas permanência' : '🔕 Alertas silenciados';
+          btnLoiterAlerts.classList.toggle('muted', !d.loiter_alerts);
+        });
+    });
 
     setInterval(updateStatus, 2000);
     updateStatus();
